@@ -4,8 +4,102 @@ import numpy as np
 
 from functions import conv_padded, conv_padded_t, MultiModule, concat, double_weight_2d, tile_add
 
-class FinalFC(nn.Module):
-    """Adds a final FC layer (combine with a CNN using MultiModule)"""
+class MotionPredictor(nn.Module):
+    """Predicts motion profile from motion-corrupted brain images.
+    Assumes 2D planar sampling (each plane is selectively excited in the z
+    dimension, then the whole xy plane is taken at once).
+    Each plane has its own displacement.
+    Example: If the brain is 256 x 256 x 136, then there are 136 time points
+    
+    in_shape - the shape of the brain (in 3D)
+    in_ch - channels of the brain (example: 2 for real and imag)
+    hidden_size - the shape of the CNN output to be passed into the LSTM
+    """
+    def __init__(self, in_shape, in_ch, dims = 3, hidden_size = None):
+        super().__init__()
+        self.in_shape_2d = in_shape[0:2]
+        self.depth = in_shape[2]
+        self.in_ch = in_ch
+        self.dims = dims
+        if hidden_size is None:
+            self.hidden_size = dims * self.depth # size of the final output
+        else:
+            self.hidden_size = hidden_size
+        
+        self.init_layers()
+        
+    def init_layers(self):
+        """The architecture is img -> CNN+FC -> LSTM -> motion profile"""
+        self.cnn = DnCnn(self.in_shape_2d, self.in_ch)
+        self.fc = FC(self.in_shape_2d, self.in_ch, 
+                     self.hidden_size, 1)
+        self.lstm = LSTM(self.hidden_size, 1, self.hidden_size, 1, self.dims)
+        
+    def forward(self, x):
+        """Input size is B x C x H x W x D"""
+        self.lstm.init_hidden()
+        # seq_len x B x C x hidden_size
+        hidden = torch.zeros((self.depth, x.shape[0], 1, self.hidden_size))
+        for d in range(self.depth):
+            i = self.cnn(x[:,:,:,:,d])
+            hidden[d] = self.fc(i)
+        return self.lstm(hidden) # 136 x B x 3 x 1
+            
+
+class LSTM(nn.Module):
+    """Implements an LSTM. 
+    3d inputs are handled by flattening then reshaping.
+    """
+    def __init__(self, in_shape, in_ch, hidden_size, out_shape, out_ch):
+        super().__init__()
+        self.in_ch = in_ch
+        self.out_ch = out_ch
+        self.hidden_size = hidden_size
+        
+        if isinstance(in_shape, (tuple, list, np.ndarray)):
+            self.in_size = 1
+            for s in in_shape:
+                self.in_size *= s
+            self.in_shape = in_shape
+        else:
+            self.in_size = in_shape
+            self.in_shape = (in_shape,)
+        if isinstance(out_shape, (tuple, list, np.ndarray)):
+            self.out_size = 1
+            for s in out_shape:
+                self.out_size *= s
+            self.out_shape = out_shape
+        else:
+            self.out_size = out_shape
+            self.out_shape = (out_shape,)
+        
+        self.init_layers()
+    
+    def init_layers(self):
+        self.lstm = nn.LSTM(self.in_size * self.in_ch, self.hidden_size)
+        self.fc = nn.Linear(self.hidden_size, self.out_size * self.out_ch)
+        self.init_hidden()
+        
+    def forward(self, x):
+        """input shape: seq_len x B x in_ch x (in_shape)
+        output shape: seq_len x B x in_ch x (out_shape)
+        """
+        x = torch.reshape(x, (x.shape[0], x.shape[1], -1))
+        x, self.hidden = self.lstm(x, self.hidden)  # x: seq_len x B x hidden
+        x = torch.reshape(x, (x.shape[0] * x.shape[1], self.hidden_size))
+        x = self.fc(x) # seq_len*B x hidden_size
+        x = torch.reshape(x, (x.shape[0], x.shape[1], self.out_ch) + 
+                          self.out_shape)
+        return x
+
+    def init_hidden(self):
+        self.hidden = (torch.zeros(1, 1, self.hidden_size),
+                       torch.zeros(1, 1, self.hidden_size))
+
+class FC(nn.Module):
+    """Adds an FC layer, for example at the end of a CNN.
+    3d inputs are handled by flattening then reshaping.
+    """
     def __init__(self, in_shape, in_ch, out_shape, out_ch):
         super().__init__()
         self.in_ch = in_ch
@@ -31,21 +125,20 @@ class FinalFC(nn.Module):
         self.init_layers()
         
     def init_layers(self):
-        self.post_act = MultiModule((nn.BatchNorm2d(self.in_ch), 
-                                     nn.PReLU(num_parameters = self.in_ch)))
         self.fc = nn.Linear(self.in_size * self.in_ch, 
                             self.out_size * self.out_ch)
         
     def forward(self, x):
-        x = self.post_act(x)
+        """input shape: B x in_ch x (in_shape)
+        output shape: B x out_ch x (out_shape)
+        """
         x = torch.reshape(x, (x.shape[0], -1))
         x = self.fc(x)
         x = torch.reshape(x, (x.shape[0], self.out_ch) + self.out_shape)
         return x
 
 class DnCnn(nn.Module):
-    """Implements the DnCNN architecture: https://arxiv.org/abs/1608.03981
-    """
+    """Implements the DnCNN architecture: https://arxiv.org/abs/1608.03981"""
     def __init__(self, in_shape, in_ch, depth = 20, kernel = 3, dropprob = 0.0):
         super().__init__()
         self.in_shape = np.array(in_shape)
@@ -107,8 +200,7 @@ class DnCnn(nn.Module):
                 dict[key] = double_weight_2d(dict[key])
 
 class UNet(nn.Module):
-    """Implements the U-Net architecture: https://arxiv.org/abs/1505.04597
-    """
+    """Implements the U-Net architecture: https://arxiv.org/abs/1505.04597"""
     def __init__(self, in_shape, in_ch, depth = 4, kernel = 3, dropprob = 0.0):
         super().__init__()
         self.in_shape = np.array(in_shape)
