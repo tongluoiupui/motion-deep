@@ -14,6 +14,9 @@ class Logger(object):
         self.terminal.write(message)
         with open(self.filename, "a+") as f:
             f.write(message)
+            
+    def flush(self):
+        self.terminal.flush()
            
 def to_boolean(s):
     return s.lower() in ('true', 'yes', 't', '1')
@@ -167,5 +170,5 @@ def compute_loss(dataset, criterion, net):
         image, label = Variable(image), Variable(label)
         image, label = image.unsqueeze(0), label.unsqueeze(0)
         output = net(image)
-        avg += (criterion(output, label).data[0] - avg) / (i + 1)
+        avg += (criterion(output, label).data.item() - avg) / (i + 1)
     return avg

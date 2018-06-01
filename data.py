@@ -94,6 +94,9 @@ class Split():
        
     def slice(self, d):
         raise NotImplementedError
+        
+    def shuffle(self):
+        self.dataset.shuffle()
 
 class Split4th(Split):
     """Splits the arrays by the 4th spatial dimension."""

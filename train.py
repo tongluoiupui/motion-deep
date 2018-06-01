@@ -28,7 +28,8 @@ def main():
     epochs = int(sys.argv[2])
     load = to_boolean(sys.argv[3])
     device = int(len(sys.argv) >= 5 and sys.argv[4])
-    babysit = sys.argv >= 6 and to_boolean(sys.argv[5])
+    babysit = len(sys.argv) >= 6 and to_boolean(sys.argv[5])
+    print(name, save, epochs, load, device, babysit)
     
     # Load cmd line arguments
     options = load_options(name)
@@ -85,7 +86,7 @@ def main():
             optimizer.step()
             
             # Monitor progress
-            train_loss = ((loss.data[0] - train_loss) / (i % disp_i + 1))
+            train_loss = ((loss.data.item() - train_loss) / (i % disp_i + 1))
             if i % disp_i == disp_i - 1:
                 print('[%d, %d] Train loss: %.3f, Time elapsed: %.3f'
                       % (e + 1, i + 1, train_loss, time.time() - start))

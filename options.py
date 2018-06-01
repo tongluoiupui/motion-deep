@@ -18,7 +18,7 @@ def load_options(name, testing = False):
     if name == 'dncnn_mag':
         transform = t.Transforms((t.MagPhase(), t.PickChannel(0)), 
                                  apply_to = 'both')
-        transform = MultiModule(transform, t.Residual(), t.ToTensor())
+        transform = MultiModule((transform, t.Residual(), t.ToTensor()))
         train = Split2d(NiiDataset('../data/8echo/train', transform))
         test = Split2d(NiiDataset('../data/8echo/test', transform))
         model, depth, dropprob = DnCnn, 20, 0.0
@@ -27,7 +27,7 @@ def load_options(name, testing = False):
     if name == 'dncnn_mag_patch':
         transform = t.Transforms((t.MagPhase(), t.PickChannel(0)), 
                                  apply_to = 'both')
-        transform = MultiModule(transform, t.Residual(), t.ToTensor())
+        transform = MultiModule((transform, t.Residual(), t.ToTensor()))
         train = SplitPatch(NiiDataset('../data/8echo/train', transform))
         test = SplitPatch(NiiDataset('../data/8echo/test', transform))
         model, depth, dropprob = DnCnn, 20, 0.0
@@ -36,7 +36,7 @@ def load_options(name, testing = False):
     elif name == 'unet_mag':
         transform = t.Transforms((t.MagPhase(), t.PickChannel(0)), 
                                  apply_to = 'both')
-        transform = MultiModule(transform, t.Residual(), t.ToTensor())
+        transform = MultiModule((transform, t.Residual(), t.ToTensor()))
         train = Split2d(NiiDataset('../data/8echo/train', transform))
         test = Split2d(NiiDataset('../data/8echo/test', transform))
         model, depth, dropprob = UNet, 4, 0.0
