@@ -118,7 +118,7 @@ def tile_add(x, y):
         return x.repeat(1, ratio, 1, 1) + y
     return x.repeat(1, ratio, 1, 1, 1) + y
     
-def num_flat_features(self, x):
+def num_flat_features(x):
     """Finds the size of x flattened to batch x size."""
     size = x.size()[1:] # all dimensions but the batch
     num_features = 1

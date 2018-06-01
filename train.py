@@ -86,7 +86,7 @@ def main():
             optimizer.step()
             
             # Monitor progress
-            train_loss = ((loss.data.item() - train_loss) / (i % disp_i + 1))
+            train_loss += ((loss.data.item() - train_loss) / (i % disp_i + 1))
             if i % disp_i == disp_i - 1:
                 print('[%d, %d] Train loss: %.3f, Time elapsed: %.3f'
                       % (e + 1, i + 1, train_loss, time.time() - start))
