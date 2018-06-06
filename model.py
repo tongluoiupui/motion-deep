@@ -22,33 +22,42 @@ class MotionPredictor(nn.Module):
         self.in_ch = in_ch
         self.dims = dims
         if hidden_size is None:
-            self.hidden_size = dims * self.depth # size of the final output
+            self.hidden_size = self.depth # size of the final output
         else:
             self.hidden_size = hidden_size
+        d = 3 # amount to downsample by after cnn
+        self.down_shape = [i // (2 ** d) for i in self.in_shape_2d]
         
         self.init_layers()
         
     def init_layers(self):
         """The architecture is img -> CNN+FC -> LSTM -> motion profile"""
+        d = 3
         self.cnn = DnCnn(self.in_shape_2d, self.in_ch)
-        self.fc = FC(self.in_shape_2d, self.in_ch, 
-                     self.hidden_size, 1)
-        self.lstm = LSTM(self.hidden_size, 1, self.hidden_size, 1, self.dims)
+        self.down = DownConv(self.in_shape_2d, self.in_ch, depth = d)
+        self.fc = FC(self.down_shape, self.in_ch, self.hidden_size, self.dims)
+        self.lstm = LSTM(self.hidden_size, self.dims, self.hidden_size, 
+                         1, self.dims)
         
     def forward(self, x):
         """Input size is B x C x H x W x D"""
         self.lstm.init_hidden()
         # seq_len x B x C x hidden_size
-        hidden = torch.zeros((self.depth, x.shape[0], 1, self.hidden_size))
+        hidden = torch.zeros((self.depth, x.shape[0], self.dims, 
+                              self.hidden_size))
         for d in range(self.depth):
             i = self.cnn(x[:,:,:,:,d])
-            hidden[d] = self.fc(i)
+            i = self.down(i)
+            i = self.fc(i)
+            hidden[d] = i
         return self.lstm(hidden) # 136 x B x 3 x 1
-            
 
 class LSTM(nn.Module):
     """Implements an LSTM. 
     3d inputs are handled by flattening then reshaping.
+    Example shapes (Seq x B x C x H x W (x D)):
+    In: 136 x 1 x 3 x 136
+    Out: 136 x 1 x 3 x 1
     """
     def __init__(self, in_shape, in_ch, hidden_size, out_shape, out_ch):
         super().__init__()
@@ -72,7 +81,6 @@ class LSTM(nn.Module):
         else:
             self.out_size = out_shape
             self.out_shape = (out_shape,)
-        
         self.init_layers()
     
     def init_layers(self):
@@ -86,9 +94,10 @@ class LSTM(nn.Module):
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1], -1))
         x, self.hidden = self.lstm(x, self.hidden)  # x: seq_len x B x hidden
-        x = torch.reshape(x, (x.shape[0] * x.shape[1], self.hidden_size))
-        x = self.fc(x) # seq_len*B x hidden_size
-        x = torch.reshape(x, (x.shape[0], x.shape[1], self.out_ch) + 
+        seq_len, B = x.shape[0], x.shape[1]
+        x = torch.reshape(x, (seq_len * B, self.hidden_size))
+        x = self.fc(x) # seq_len*B x hidden_size -> Seq*B x C x S
+        x = torch.reshape(x, (seq_len, B, self.out_ch) + 
                           self.out_shape)
         return x
 
@@ -99,6 +108,9 @@ class LSTM(nn.Module):
 class FC(nn.Module):
     """Adds an FC layer, for example at the end of a CNN.
     3d inputs are handled by flattening then reshaping.
+    Example shapes (B x C x H x W (x D)):
+    In: 1 x 2 x 32 x 32
+    Out: 1 x 3 x 136
     """
     def __init__(self, in_shape, in_ch, out_shape, out_ch):
         super().__init__()
@@ -137,8 +149,56 @@ class FC(nn.Module):
         x = torch.reshape(x, (x.shape[0], self.out_ch) + self.out_shape)
         return x
 
+class DownConv(nn.Module):
+    """Adds downsampling layers, for example between DnCnn and FC.
+    Example shapes (B x C x H x W (x D)):
+    In: 1 x 2 x 256 x 256
+    Out: 1 x 2 x 32 x 32
+    
+    depth: number of factors of two to downsample by, or equivalently the # of
+        downconv layers
+    """
+    def __init__(self, in_shape, in_ch, depth = 3):
+        super().__init__()
+        self.in_shape = np.array(in_shape)
+        self.in_ch = in_ch
+        self.depth = depth
+        
+        if len(in_shape) == 2:
+            self.dim = '2d'
+        elif len(in_shape) == 3:
+            self.dim = '3d'
+        else:
+            assert False, 'Input ' + str(in_shape) + ' must be 2d or 3d'
+        
+        self.init_layers()
+        
+    def init_layers(self):
+        shape = self.in_shape
+        def post_module_down(shape, out_shape):
+            conv = conv_padded(self.in_ch, self.in_ch, 2, 2, shape, out_shape, 
+                               dim = self.dim)
+            return MultiModule((conv, nn.PReLU(num_parameters = self.in_ch)))
+        for i in range(self.depth):
+            self.add_module("conv" + str(i), post_module_down(shape, shape//2))
+            shape //= 2
+    
+    def forward(self, x):
+        for i in range(self.depth):
+            conv = getattr(self, "conv" + str(i))
+            x = conv(x)
+        return x
+
 class DnCnn(nn.Module):
-    """Implements the DnCNN architecture: https://arxiv.org/abs/1608.03981"""
+    """Implements the DnCNN architecture: https://arxiv.org/abs/1608.03981
+    Example shapes (B x C x H x W (x D)):
+    In: 1 x 2 x 256 x 256
+    Out: 1 x 2 x 256 x 256
+    
+    depth: depth of network
+    kernel: size of convolution kernels
+    dropprob: probability for dropout
+    """
     def __init__(self, in_shape, in_ch, depth = 20, kernel = 3, dropprob = 0.0):
         super().__init__()
         self.in_shape = np.array(in_shape)
@@ -200,7 +260,16 @@ class DnCnn(nn.Module):
                 dict[key] = double_weight_2d(dict[key])
 
 class UNet(nn.Module):
-    """Implements the U-Net architecture: https://arxiv.org/abs/1505.04597"""
+    """Implements the U-Net architecture: https://arxiv.org/abs/1505.04597
+    Example shapes (B x C x H x W (x D)):
+    In: 1 x 2 x 256 x 256
+    Out: 1 x 2 x 256 x 256
+    
+    depth: roughly half of the depth of the network (# of layers going down)
+    kernel: size of convolution kernels, except the down and up convolutions,
+        which are always 2x2
+    dropprob: probability for dropout
+    """
     def __init__(self, in_shape, in_ch, depth = 4, kernel = 3, dropprob = 0.0):
         super().__init__()
         self.in_shape = np.array(in_shape)
