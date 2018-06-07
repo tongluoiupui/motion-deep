@@ -259,8 +259,97 @@ class DnCnn(nn.Module):
             if key.startswith('conv') and key.endswith('weight'):
                 dict[key] = double_weight_2d(dict[key])
 
+class UAutoencoder(nn.Module):
+    """Combines two UEncoders into an autoencoder.
+    / is used instead of // in case shape is not divisible by 2**4. The
+    conv_padded function (in functions.py) truncates decimals for shape.
+    Keeping shape as a decimal means that after dividing and un-dividing, we
+    get the original shape back.
+    """
+    def __init__(self, in_shape, in_ch, depth = 4, kernel = 3):
+        super().__init__()
+        self.in_shape = np.array(in_shape)
+        self.in_ch = in_ch
+        self.depth = depth
+        self.kernel = kernel
+        
+        self.init_layers()
+        
+    def init_layers(self):
+        self.encoder = UEncoder(self.in_shape, self.in_ch, depth = self.depth, 
+                                kernel = self.kernel, part = 'encoder')
+        self.decoder = UEncoder(self.in_shape / (2 ** self.depth), self.in_ch, 
+                                depth = self.depth, kernel = self.kernel, 
+                                part = 'encoder')
+                
+class UEncoder(nn.Module):
+    """Implements an encoder or decoder based on the UNet
+    architecture (https://arxiv.org/abs/1505.04597).
+    Modifications (inspired by VNet):
+        It uses resid learning: x = x + conv(x) instead of x = conv(x).
+        It uses downconvolution instead of max pooling.
+        Channels do not expand to achieve higher compression.
+        No feature forwarding.
+    """
+    def __init__(self, in_shape, in_ch, depth = 4, kernel = 3, part = 'encoder'):
+        super().__init__()
+        self.in_shape = np.array(in_shape)
+        self.in_ch = in_ch
+        self.depth = depth
+        self.kernel = kernel
+        self.part = part
+        
+        if len(in_shape) == 2:
+            self.dim = '2d'
+        elif len(in_shape) == 3:
+            self.dim = '3d'
+        else:
+            assert False, 'Input ' + str(in_shape) + ' must be 2d or 3d'
+            
+        self.init_layers()
+        
+    def init_layers(self):
+        ch = self.in_ch
+        shape = self.in_shape
+        
+        def unet_module(ch, out_ch, shape):
+            # print(ch, shape)
+            conv1 = conv_padded(ch, out_ch, self.kernel, 1, shape, shape, 
+                                dim = self.dim)
+            conv2 = conv_padded(out_ch, out_ch, self.kernel, 1, shape, shape,
+                                dim = self.dim)
+            return MultiModule((conv1, nn.PReLU(num_parameters = out_ch), 
+                                conv2, nn.PReLU(num_parameters = out_ch)))
+        def down_module(ch, out_ch, shape, out_shape):
+            conv = conv_padded(ch, out_ch, 2, 2, shape, out_shape, 
+                               dim = self.dim)
+            return MultiModule((conv, nn.PReLU(num_parameters = out_ch)))
+        def up_module(ch, out_ch, shape, out_shape):
+            conv = conv_padded_t(ch, out_ch, 2, 2, shape, out_shape, 
+                                 dim = self.dim)
+            return MultiModule((conv, nn.PReLU(num_parameters = out_ch)))
+        
+        for d in range(self.depth):
+            conv = unet_module(ch, ch, shape)
+            setattr(self, "conv" + str(d), conv)
+            if self.part == 'encoder':
+                conv, shape = down_module(ch, ch, shape, shape / 2), shape / 2
+            elif self.part == 'decoder':
+                conv, shape = up_module(ch, ch, shape, shape * 2), shape * 2
+            setattr(self, "conv_p" + str(d), conv)
+            
+    def forward(self, x):
+        for d in range(self.depth):
+            conv = getattr(self, "conv" + str(d))
+            post = getattr(self, "conv_p" + str(d))
+            x = post(tile_add(x, conv(x)))
+        return x
+
 class UNet(nn.Module):
     """Implements the U-Net architecture: https://arxiv.org/abs/1505.04597
+    Modifications (inspired by VNet):
+        It uses resid learning: x = x + conv(x) instead of x = conv(x)
+        It uses downconvolution instead of max pooling.
     Example shapes (B x C x H x W (x D)):
     In: 1 x 2 x 256 x 256
     Out: 1 x 2 x 256 x 256
@@ -310,12 +399,12 @@ class UNet(nn.Module):
         
         conv, ch = unet_module(self.in_ch, ch, shape), ch
         setattr(self, 'conv_d0', conv)
-        conv, shape = post_module_down(ch, ch, shape, shape // 2), shape // 2
+        conv, shape = post_module_down(ch, ch, shape, shape / 2), shape / 2
         setattr(self, 'conv2_d0', conv)
         for i in range(1, self.depth):
             conv, ch = unet_module(ch, ch * 2, shape), ch * 2
             setattr(self, 'conv_d' + str(i), conv)
-            conv, shape = post_module_down(ch, ch, shape, shape // 2), shape // 2
+            conv, shape = post_module_down(ch, ch, shape, shape / 2), shape / 2
             setattr(self, 'conv2_d' + str(i), conv)
         self.conv_m0, ch = unet_module(ch, ch * 2, shape), ch * 2
         # ch does not change due to feature forwarding
