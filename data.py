@@ -1,13 +1,67 @@
 import nibabel as nib
 import numpy as np
+from pydicom import dcmread
 
 import random
 from fnmatch import fnmatch
 from os import listdir
-from os.path import join
+from os.path import join, isdir
 
 from motionsim import motion_PD
 from transform import RealImag
+
+class MultiContrastDataset:
+    """Loads data with the following file structure:
+    data >
+        NC011 >
+            ax_dti_30 >
+                7-1.dcm, 7-2.dcm, ...
+            ax_t2_flair >
+                2-1.dcm, 2-2.dcm, ... 
+            brainwave >
+                6-1.dcm, 6-2.dcm, ...
+            eswan >
+                9-1.dcm, 9-2.dcm, ...
+            sag_t1_fspgr >
+                4-1.dcm, 4-2.dcm, ...
+        NC012 >
+            ...
+    (dicom numbers don't matter, slices have to be in alphanumerical order)
+    
+    todo: use dcm fields to standardize rotations, get echo# for stacking, ... 
+    """
+    def __init__(self, dir): 
+        def key(f1):
+            f1 = f1[f1.index('-') + 1 : f1.index('.dcm')]
+            return int(f1)
+            
+        # not quite complete, need to go up one dir and combine structures
+        self.dir = dir
+        dirs = [d for d in listdir(dir) if isdir(join(dir, d))]
+        for d in dirs:
+            folder = join(dir, d)
+            files = [f for f in listdir(folder) if fnmatch(f, '*.dcm')]
+            files = sorted(files, key = key)
+            # print(files)
+            stacked = None
+            for f in files:
+                img = dcmread(join(folder, f)).pixel_array
+                img = np.expand_dims(img, 0)
+                if stacked is None:
+                    stacked = img
+                else:
+                    stacked = np.concatenate((stacked, img), axis = 0)
+            stacked = np.moveaxis(stacked, 0, -1)
+            if 'dti' in d:
+                self.dti = stacked
+            if 't2' in d:
+                self.t2 = stacked
+            if 'brainwave' in d or 'rest' in d:
+                self.rest = stacked
+            if 'eswan' in d:
+                self.eswan = stacked
+            if 't1' in d:
+                self.t1 = stacked
 
 class CombinedDataset:
     """Combines two datasets into one."""
