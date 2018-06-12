@@ -1,3 +1,6 @@
+#import gc
+#import resource
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -33,7 +36,8 @@ class MotionPredictor(nn.Module):
     def init_layers(self):
         """The architecture is img -> CNN+FC -> LSTM -> motion profile"""
         d = 3
-        self.cnn = DnCnn(self.in_shape_2d, self.in_ch)
+        # self.cnn = UNet(self.in_shape_2d, self.in_ch)
+        self.cnn = DnCnn(self.in_shape_2d, self.in_ch, depth = 10)
         self.down = DownConv(self.in_shape_2d, self.in_ch, depth = d)
         self.fc = FC(self.down_shape, self.in_ch, self.hidden_size, self.dims)
         self.lstm = LSTM(self.hidden_size, self.dims, self.hidden_size, 
@@ -46,10 +50,22 @@ class MotionPredictor(nn.Module):
         hidden = torch.zeros((self.depth, x.shape[0], self.dims, 
                               self.hidden_size))
         for d in range(self.depth):
-            i = self.cnn(x[:,:,:,:,d])
+            i = x[:,:,:,:,d]
+            # uses extra memory each iter until it hits a certain number:
+            i = self.cnn(i)
+            # i = x[:,:,:,:,d]
+            #gc.collect()
+            #max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            #print("cnn {:.2f} MB".format(max_mem_used / 1024))
             i = self.down(i)
+            #gc.collect()
+            #max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            #print("down {:.2f} MB".format(max_mem_used / 1024))
             i = self.fc(i)
             hidden[d] = i
+            #gc.collect()
+            #max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            #print("fc {:.2f} MB".format(max_mem_used / 1024))
         return self.lstm(hidden) # 136 x B x 3 x 1
 
 class LSTM(nn.Module):
