@@ -235,8 +235,32 @@ def r3(filename):
     label = nib.load(filename).get_data().__array__()
     image = np.zeros(label.shape, dtype = np.complex64)
     for e in range(image.shape[3]):
-        image[:,:,:,e] = motion_PD(label[:,:,:,e])
+        image[:,:,:,e], _ = motion_PD(label[:,:,:,e])
     return image, label
+
+def r4(filename):
+    """Loads nii files where the directory structure is:
+    v dir
+        brain1.nii
+        brain2.nii
+        ...
+    Uses motion simulation to create image-label pairs during training, where
+    the label is the motion profile.
+    """
+    label = nib.load(filename).get_data().__array__()
+    image = np.zeros(label.shape, dtype = np.complex64)
+    motion = None
+    for e in range(image.shape[3]):
+        image[:,:,:,e], m = motion_PD(label[:,:,:,e])
+        if motion is None:
+            motion = m[:,:,None]
+        else:
+            motion = np.concatenate((motion, m[:,:,None]), axis = 2)
+    # motion: 3 x 256 x 8
+    motion = motion[:,:,None,None,:] # 3 x 256 x 1 x 1 x 8
+    # for MotionPredictor, motion should be last depth axis
+    image = np.transpose(image, axes = (2, 1, 0, 3)) # (C x) D x W x H x E
+    return image, motion
 
 def NiiDataset(dir, transform):
     return Split4th(NdarrayDataset(dir, transform, read = r1))
@@ -246,3 +270,6 @@ def PdDataset(dir, transform):
 
 def NiiDatasetSim(dir, transform):
     return Split4th(NdarrayDataset(dir, transform, read = r3))
+
+def NiiDatasetMotion(dir, transform):
+    return Split4th(NdarrayDataset(dir, transform, read = r4))

@@ -17,19 +17,26 @@ class MotionPredictor(nn.Module):
     in_shape - the shape of the brain (in 3D)
     in_ch - channels of the brain (example: 2 for real and imag)
     hidden_size - the shape of the CNN output to be passed into the LSTM
+    
+    right now it is restricted to one axis direction, otherwise you don't know
+        which axis is time.
+    do axis swapping in motion sim instead of here?
     """
-    def __init__(self, in_shape, in_ch, dims = 3, hidden_size = None):
+    def __init__(self, in_shape, in_ch, dims = 3, hidden_size = None,
+                 depth = 10, dropprob = 0.0):
         super().__init__()
         self.in_shape_2d = in_shape[0:2]
-        self.depth = in_shape[2]
+        self.length = in_shape[2]
         self.in_ch = in_ch
         self.dims = dims
         if hidden_size is None:
-            self.hidden_size = self.depth # size of the final output
+            self.hidden_size = self.length # size of the final output
         else:
             self.hidden_size = hidden_size
         d = 3 # amount to downsample by after cnn
         self.down_shape = [i // (2 ** d) for i in self.in_shape_2d]
+        self.depth = depth
+        self.dropprob = dropprob
         
         self.init_layers()
         
@@ -37,7 +44,8 @@ class MotionPredictor(nn.Module):
         """The architecture is img -> CNN+FC -> LSTM -> motion profile"""
         d = 3
         # self.cnn = UNet(self.in_shape_2d, self.in_ch)
-        self.cnn = DnCnn(self.in_shape_2d, self.in_ch, depth = 10)
+        self.cnn = DnCnn(self.in_shape_2d, self.in_ch, depth = self.depth,
+                         dropprob = self.dropprob)
         self.down = DownConv(self.in_shape_2d, self.in_ch, depth = d)
         self.fc = FC(self.down_shape, self.in_ch, self.hidden_size, self.dims)
         self.lstm = LSTM(self.hidden_size, self.dims, self.hidden_size, 
@@ -47,9 +55,9 @@ class MotionPredictor(nn.Module):
         """Input size is B x C x H x W x D"""
         self.lstm.init_hidden()
         # seq_len x B x C x hidden_size
-        hidden = torch.zeros((self.depth, x.shape[0], self.dims, 
+        hidden = torch.zeros((self.length, x.shape[0], self.dims, 
                               self.hidden_size))
-        for d in range(self.depth):
+        for d in range(self.length):
             i = x[:,:,:,:,d]
             # uses extra memory each iter until it hits a certain number:
             i = self.cnn(i)
@@ -66,7 +74,8 @@ class MotionPredictor(nn.Module):
             #gc.collect()
             #max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             #print("fc {:.2f} MB".format(max_mem_used / 1024))
-        return self.lstm(hidden) # 136 x B x 3 x 1
+        x = self.lstm(hidden).permute(1, 2, 0, 3)[:,:,:,:,None]
+        return x # 136 x B x 3 x 1 -> B x 3 x 256 x 1 x 1
 
 class LSTM(nn.Module):
     """Implements an LSTM. 

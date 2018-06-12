@@ -90,7 +90,7 @@ def simulate_motion(img, dx, dy, dz, axes = 0):
     
     return img_shift
 
-def motion_PD(img, axes = 0, noise = perlin_octave, level = 0.0125, f = 1/16):
+def motion_PD(img, axes = 0, noise = perlin_octave, level = 0.1, f = 1/16):
     if not isinstance(axes, (tuple, list, np.ndarray)):
         axes = (axes,)
     length = int(np.prod([s for i, s in enumerate(img.shape) if i in axes]))
@@ -101,4 +101,5 @@ def motion_PD(img, axes = 0, noise = perlin_octave, level = 0.0125, f = 1/16):
     dy = level * noise(length, movement_f) / length
     dz = np.zeros(length)#level * noise(length, movement_f) / length
     img = simulate_motion(img, dx, dy, dz, axes = axes)
-    return np.fft.ifftn(img)
+    motion = np.concatenate((dx[None,:], dy[None,:], dz[None,:]))
+    return np.fft.ifftn(img), motion

@@ -1,9 +1,9 @@
 import torch
 import torch.optim as optim
 
-from data import NiiDataset, PdDataset, Split2d, SplitPatch
+from data import NiiDataset, PdDataset, Split2d, SplitPatch, NiiDatasetMotion
 from functions import MultiModule
-from model import DnCnn, UNet
+from model import DnCnn, UNet, MotionPredictor
 import transform as t
 
 def load_PD_dataset():
@@ -15,6 +15,14 @@ def load_PD_dataset():
 
 def load_options(name, testing = False):
     """Saves experiment options under names to load in train and test"""
+    if name == 'dncnn_motion':
+        transform = t.Transforms((t.MagPhase(),), apply_to = 'image')
+        transform = MultiModule((transform, t.ToTensor()))
+        train = NiiDatasetMotion('../data/8echo/train', transform)
+        test = NiiDatasetMotion('../data/8echo/test', transform)
+        model, depth, dropprob = MotionPredictor, 5, 0.0
+        optimizer = optim.Adam
+        criterion = torch.nn.MSELoss()
     if name == 'dncnn_mag':
         transform = t.Transforms((t.MagPhase(), t.PickChannel(0)), 
                                  apply_to = 'both')
