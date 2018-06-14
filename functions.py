@@ -27,7 +27,7 @@ def padding(d_in, d_out, kernel, stride):
     Padding is one-sided.
     out = (1 / stride)(in + 2 * padding - kernel) + 1
     """
-    p = lambda i, o: int((o - 1) * stride + kernel - i)
+    p = lambda i, o: max(0, int((o - 1) * stride + kernel - i))
     if isinstance(d_in, (list, tuple, np.ndarray)):
         return np.array([p(i, o) for i, o in zip(d_in, d_out)])
     return p(d_in, d_out)
@@ -39,7 +39,7 @@ def padding_t(d_in, d_out, kernel, stride):
     Output padding is one-sided.
     d_out = (d_in - 1) * stride + kernel
     """
-    p = lambda i, o: int(o - ((i - 1) * stride + kernel))
+    p = lambda i, o: max(0, int(o - ((i - 1) * stride + kernel)))
     if isinstance(d_in, (list, tuple, np.ndarray)):
         return np.array([p(i, o) for i, o in zip(d_in, d_out)])
     return p(d_in, d_out)
@@ -60,6 +60,7 @@ def conv_padded(ch_in, ch_out, kernel, stride, d_in, d_out, dim = '2d'):
     elif dim == '3d':
         conv_f = nn.Conv3d
     p = padding(d_in, d_out, kernel, stride)
+    print(d_in, d_out, p)
     conv = conv_f(ch_in, ch_out, kernel, stride = stride,
                   padding = to_int_tuple(p // 2))
     if np.all(p % 2 == 0):
@@ -79,6 +80,7 @@ def conv_padded_t(ch_in, ch_out, kernel, stride, d_in, d_out, dim = '2d'):
     elif dim == '3d':
         conv_f = nn.ConvTranspose3d
     p = padding_t(d_in, d_out, kernel, stride)
+    print(d_in, d_out, p)
     return conv_f(ch_in, ch_out, kernel, stride = stride,
                   output_padding = to_int_tuple(p))
         

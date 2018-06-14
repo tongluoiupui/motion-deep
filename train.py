@@ -9,6 +9,9 @@ from os import mkdir
 from os.path import exists, join
 import sys
 import time
+
+import gc
+import resource
             
 def main():
     if len(sys.argv) not in (4, 5, 6):
@@ -65,6 +68,11 @@ def main():
     print('Epochs:', epochs)
     print('Examples per epoch:', len(train))
     start = time.time()
+    
+    gc.collect()
+    max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print("init {:.2f} MB".format(max_mem_used / 1024))
+    
     for e in range(epochs):
         train_loss = 0.0
         train.shuffle()
@@ -80,10 +88,29 @@ def main():
                     
             # Do one step
             optimizer.zero_grad()
-            output = model(image)
+            output = model(image) #dies here. perhaps because image > zeros
+            
+            gc.collect()
+            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            print("post-forward {:.2f} MB".format(max_mem_used / 1024))
+            
             loss = criterion(output, label)
+            
+            gc.collect()
+            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            print("crit {:.2f} MB".format(max_mem_used / 1024))
+            
             loss.backward()
+            
+            gc.collect()
+            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            print("back {:.2f} MB".format(max_mem_used / 1024))
+            
             optimizer.step()
+            
+            gc.collect()
+            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            print("step {:.2f} MB".format(max_mem_used / 1024))
             
             # Monitor progress
             train_loss += ((loss.data.item() - train_loss) / (i % disp_i + 1))

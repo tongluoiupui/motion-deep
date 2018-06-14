@@ -33,8 +33,8 @@ class MotionPredictor(nn.Module):
             self.hidden_size = self.length # size of the final output
         else:
             self.hidden_size = hidden_size
-        d = 3 # amount to downsample by after cnn
-        self.down_shape = [i // (2 ** d) for i in self.in_shape_2d]
+        self.d = 4 # amount to downsample by after cnn
+        self.down_shape = [i // (2 ** self.d) for i in self.in_shape_2d]
         self.depth = depth
         self.dropprob = dropprob
         
@@ -42,11 +42,10 @@ class MotionPredictor(nn.Module):
         
     def init_layers(self):
         """The architecture is img -> CNN+FC -> LSTM -> motion profile"""
-        d = 3
         # self.cnn = UNet(self.in_shape_2d, self.in_ch)
         self.cnn = DnCnn(self.in_shape_2d, self.in_ch, depth = self.depth,
                          dropprob = self.dropprob)
-        self.down = DownConv(self.in_shape_2d, self.in_ch, depth = d)
+        self.down = DownConv(self.in_shape_2d, self.in_ch, depth = self.d)
         self.fc = FC(self.down_shape, self.in_ch, self.hidden_size, self.dims)
         self.lstm = LSTM(self.hidden_size, self.dims, self.hidden_size, 
                          1, self.dims)

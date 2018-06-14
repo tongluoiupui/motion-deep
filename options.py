@@ -16,7 +16,7 @@ def load_PD_dataset():
 def load_options(name, testing = False):
     """Saves experiment options under names to load in train and test"""
     if name == 'dncnn_motion':
-        transform = t.Transforms((t.MagPhase(),), apply_to = 'image')
+        transform = t.Transforms((t.MagPhase(), t.Decimate(axes = (1, 2))), apply_to = 'image')
         transform = MultiModule((transform, t.ToTensor()))
         train = NiiDatasetMotion('../data/8echo/train', transform)
         test = NiiDatasetMotion('../data/8echo/test', transform)
