@@ -290,7 +290,7 @@ class UAutoencoder(nn.Module):
     Keeping shape as a decimal means that after dividing and un-dividing, we
     get the original shape back.
     """
-    def __init__(self, in_shape, in_ch, depth = 4, kernel = 3):
+    def __init__(self, in_shape, in_ch, depth = 4, kernel = 3, dropprob = 0.0):
         super().__init__()
         self.in_shape = np.array(in_shape)
         self.in_ch = in_ch
@@ -304,7 +304,12 @@ class UAutoencoder(nn.Module):
                                 kernel = self.kernel, part = 'encoder')
         self.decoder = UEncoder(self.in_shape / (2 ** self.depth), self.in_ch, 
                                 depth = self.depth, kernel = self.kernel, 
-                                part = 'encoder')
+                                part = 'decoder')
+        
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x
                 
 class UEncoder(nn.Module):
     """Implements an encoder or decoder based on the UNet

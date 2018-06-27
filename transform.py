@@ -27,6 +27,12 @@ class Transforms(object):
                 label = t(label)
         return {'image': image, 'label': label}
 
+class Normalize(object):
+    """Normalizes the data"""
+    def __call__(self, arr):
+        arr = (arr - np.mean(arr)) / np.std(arr)
+        return arr
+
 class MagPhase(object):
     """Splits complex data into mag and phase components as channels.
     (spatial dims) -> C x (spatial dims)

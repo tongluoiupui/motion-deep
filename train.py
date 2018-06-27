@@ -47,21 +47,23 @@ def main():
     sys.stdout = Logger(join(save, 'log.txt'))
     losses = None
     
+    if torch.cuda.is_available():
+        torch.cuda.set_device(device)
+        model.cuda()
+    
     # Load model if resuming
     if not exists(save):
         mkdir(save)
     elif load:
         print('Loading model:', name)
         if torch.cuda.is_available():
-            torch.cuda.set_device(device)
             map_location = None
-            model.cuda()
         else: # torch.load needs to be altered if model was saved on GPU
             map_location = lambda storage, loc: storage
         model.load_state_dict(torch.load(join(save, 'model.pth'),
                                          map_location = map_location))
         losses = np.load(join(save, 'losses.npy'))
-        
+    
     # Train the model
     print('Beginning training...')
     print('Name:', name)
@@ -69,9 +71,9 @@ def main():
     print('Examples per epoch:', len(train))
     start = time.time()
     
-    gc.collect()
-    max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    print("init {:.2f} MB".format(max_mem_used / 1024))
+#    gc.collect()
+#    max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+#    print("init {:.2f} MB".format(max_mem_used / 1024))
     
     for e in range(epochs):
         train_loss = 0.0
@@ -88,32 +90,32 @@ def main():
                     
             # Do one step
             optimizer.zero_grad()
-            output = model(image) #dies here. perhaps because image > zeros
+            output = model(image)
             
-            gc.collect()
-            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            print("post-forward {:.2f} MB".format(max_mem_used / 1024))
+#            gc.collect()
+#            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+#            print("post-forward {:.2f} MB".format(max_mem_used / 1024))
             
             loss = criterion(output, label)
             
-            gc.collect()
-            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            print("crit {:.2f} MB".format(max_mem_used / 1024))
+#            gc.collect()
+#            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+#            print("crit {:.2f} MB".format(max_mem_used / 1024))
             
             loss.backward()
             
-            gc.collect()
-            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            print("back {:.2f} MB".format(max_mem_used / 1024))
+#            gc.collect()
+#            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+#            print("back {:.2f} MB".format(max_mem_used / 1024))
             
             optimizer.step()
             
-            gc.collect()
-            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            print("step {:.2f} MB".format(max_mem_used / 1024))
+#            gc.collect()
+#            max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+#            print("step {:.2f} MB".format(max_mem_used / 1024))
             
             # Monitor progress
-            train_loss += ((loss.data.item() - train_loss) / (i % disp_i + 1))
+            train_loss += ((loss.data[0] - train_loss) / (i % disp_i + 1))
             if i % disp_i == disp_i - 1:
                 print('[%d, %d] Train loss: %.3f, Time elapsed: %.3f'
                       % (e + 1, i + 1, train_loss, time.time() - start))

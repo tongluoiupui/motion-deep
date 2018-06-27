@@ -141,7 +141,7 @@ model.load_state_dict(torch.load(join(save, 'model.pth'),
                                  map_location = map_location))
 losses = np.load(join(save, 'losses.npy'))
 
-test = load_PD_dataset()
+# test = load_PD_dataset()
 pred = NdarrayPred(test, model)
 
 #example = pred[0]

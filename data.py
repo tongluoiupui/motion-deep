@@ -5,10 +5,10 @@ from pydicom import dcmread
 import random
 from fnmatch import fnmatch
 from os import listdir
-from os.path import join
+from os.path import join, isdir
 
 from motionsim import motion_PD
-from transform import RealImag
+from transform import Transforms, RealImag, ToTensor
 
 class CombinedDataset:
     """Combines two datasets into one."""
@@ -64,12 +64,42 @@ class NdarrayDataset:
         if self.transform:
             example = self.transform(example)
         else:
-            example = RealImag()(example)
+            example = Transforms((RealImag(),))(example)
         return example
     
     def shuffle(self):
         random.shuffle(self.files)
-        
+
+class SubjDataset:
+    """Loads data from a patient directory"""
+    def __init__(self, dir, transform, read):
+        self.dir = dir
+        self.dirs = [join(dir, f) for f in listdir(dir) if isdir(join(dir, f))]
+        self.transform = transform
+        self.read = read
+    
+    def __len__(self):
+        return len(self.dirs)
+    
+    def __getitem__(self, i):
+        return self.load(self.dirs[i])
+    
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+            
+    def load(self, filename):
+        x, y = self.read(filename)
+        example = {'image': x, 'label': y}
+        if self.transform is None:
+            example = ToTensor()(example)
+        else:
+            example = self.transform(example)
+        return example
+    
+    def shuffle(self):
+        random.shuffle(self.dirs)
+
 class Split():
     """Splits the arrays somehow (abstract class)."""
     def __init__(self, dataset):
@@ -209,6 +239,29 @@ def r4(filename):
     image = np.transpose(image, axes = (2, 1, 0, 3)) # (C x) D x W x H x E
     return image, motion
 
+def r_dti(dir):
+    for f in listdir(dir):
+        f = join(dir, f)
+        if fnmatch(f, '*L1.nii.gz'):
+            l1 = nib.load(f).get_data()[:,:,:,None]
+            l1 = np.concatenate((l1,l1,l1), axis = 3)
+        elif fnmatch(f, '*L2.nii.gz'):
+            l2 = nib.load(f).get_data()[:,:,:,None]
+            l2 = np.concatenate((l2,l2,l2), axis = 3)
+        elif fnmatch(f, '*L3.nii.gz'):
+            l3 = nib.load(f).get_data()[:,:,:,None]
+            l3 = np.concatenate((l3,l3,l3), axis = 3)
+        elif fnmatch(f, '*V1.nii.gz'):
+            v1 = nib.load(f).get_data()
+        elif fnmatch(f, '*V2.nii.gz'):
+            v2 = nib.load(f).get_data()
+        elif fnmatch(f, '*V3.nii.gz'):
+            v3 = nib.load(f).get_data()
+    v1, v2, v3 = v1*l1, v2*l2, v3*l3
+    v = np.concatenate((v1,v2,v3), axis = 3)
+    v = np.transpose(v, axes = (3, 0, 1, 2)) # C x H x W x D
+    return v, v
+
 def NiiDataset(dir, transform):
     return Split4th(NdarrayDataset(dir, transform, read = r1))
 
@@ -220,3 +273,6 @@ def NiiDatasetSim(dir, transform):
 
 def NiiDatasetMotion(dir, transform):
     return Split4th(NdarrayDataset(dir, transform, read = r4))
+
+def DtiDataset(dir, transform):
+    return SubjDataset(dir, transform, r_dti)
